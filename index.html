@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ghost Protocol | Local Metadata Scrubber</title>
+    <meta name="description" content="A hyper-focused, client-side utility to scrub image metadata and camouflage text against AI scrapers.">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Splash Screen -->
+    <div id="splash-screen" class="splash-screen">
+        <canvas id="matrix-canvas"></canvas>
+        <div class="splash-ghost">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M9 10h.01"></path>
+                <path d="M15 10h.01"></path>
+                <path d="M12 2a8 8 0 0 0-8 8v12l3-3 2.5 2.5L12 19l2.5 2.5L17 19l3 3V10a8 8 0 0 0-8-8z"></path>
+            </svg>
+        </div>
+        <div class="splash-content">
+            <h1 class="splash-title glitch" data-text="LOCAL METADATA SCRUBBER">LOCAL METADATA SCRUBBER</h1>
+            <h2 class="splash-subtitle glitch-delayed" data-text="Created by HattyHats">Created by HattyHats</h2>
+            <button id="enter-btn" class="enter-btn">ENTER SYSTEM</button>
+        </div>
+    </div>
+    <div class="background-elements">
+        <div class="orb orb-1"></div>
+        <div class="orb orb-2"></div>
+    </div>
+
+    <main class="glass-container">
+        <header>
+            <h1 class="glitch-title" data-text="GHOST_PROTOCOL">GHOST_PROTOCOL</h1>
+            <p class="subtitle">Local-Only Metadata Scrubber & Canvas Camouflage</p>
+            <div class="status-badge">
+                <span class="pulse"></span>
+                <span>100% Client-Side Processing</span>
+            </div>
+        </header>
+
+        <div class="tabs">
+            <button class="tab-btn active" data-target="image-tab">IMAGE SCRUBBER</button>
+            <button class="tab-btn" data-target="text-tab">TEXT CAMOUFLAGE</button>
+        </div>
+
+        <div class="tab-content active" id="image-tab">
+            <div class="info-panel">
+                <p>Strips all EXIF data, GPS coordinates, and camera profiles. Injects invisible pixel perturbations (noise) to confuse AI recognition algorithms while remaining visually identical to the human eye.</p>
+            </div>
+            
+            <div class="drop-zone" id="drop-zone">
+                <div class="drop-content">
+                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="17 8 12 3 7 8"></polyline>
+                        <line x1="12" y1="3" x2="12" y2="15"></line>
+                    </svg>
+                    <p>Drag & Drop Image Here</p>
+                    <span class="subtext">or click to browse</span>
+                </div>
+                <input type="file" id="file-input" accept="image/jpeg, image/png, image/webp" hidden>
+            </div>
+
+            <div class="preview-container hidden" id="preview-container">
+                <div class="canvas-wrapper">
+                    <canvas id="image-canvas"></canvas>
+                </div>
+                <div class="controls">
+                    <button class="action-btn" id="download-btn">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                            <polyline points="7 10 12 15 17 10"></polyline>
+                            <line x1="12" y1="15" x2="12" y2="3"></line>
+                        </svg>
+                        DOWNLOAD SCRUBBED IMAGE
+                    </button>
+                    <button class="secondary-btn" id="reset-img-btn">Reset</button>
+                </div>
+                <div class="processing-stats" id="img-stats"></div>
+            </div>
+        </div>
+
+        <div class="tab-content" id="text-tab">
+            <div class="info-panel">
+                <p>Injects zero-width, non-printing characters randomly throughout your text. Humans read it normally; scrapers and AI models ingest corrupted, fragmented data.</p>
+            </div>
+
+            <div class="text-areas">
+                <div class="input-group">
+                    <label for="text-input">Original Text</label>
+                    <textarea id="text-input" placeholder="Paste your prose, code, or private thoughts here..."></textarea>
+                </div>
+                
+                <div class="actions">
+                    <button class="action-btn" id="scrub-text-btn">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 2v20"></path>
+                            <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+                        </svg>
+                        CAMOUFLAGE TEXT
+                    </button>
+                </div>
+
+                <div class="input-group output-group hidden" id="text-output-container">
+                    <label for="text-output">Camouflaged Output (Ready to copy)</label>
+                    <textarea id="text-output" readonly></textarea>
+                    <div class="controls">
+                        <button class="action-btn" id="copy-text-btn">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                            </svg>
+                            COPY SECURE TEXT
+                        </button>
+                        <span class="processing-stats" id="text-stats"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script src="app.js"></script>
+</body>
+</html>
