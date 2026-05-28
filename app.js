@@ -155,13 +155,27 @@ document.addEventListener('DOMContentLoaded', () => {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
     }
 
-    neutralizeBtn.addEventListener('click', async () => {
+    neutralizeBtn.addEventListener('click', () => {
         if (!pendingImage) return;
         
-        threatDashboard.classList.add('hidden');
-        previewContainer.classList.remove('hidden');
+        // Show loading state on the button
+        const originalText = neutralizeBtn.innerHTML;
+        neutralizeBtn.innerHTML = '<span class="spinner-small"></span> NEUTRALIZING...';
+        neutralizeBtn.disabled = true;
+        cancelBtn.disabled = true;
         
-        await processImage(pendingImage);
+        // Use setTimeout to allow the browser to paint the loading state before blocking the thread
+        setTimeout(async () => {
+            threatDashboard.classList.add('hidden');
+            previewContainer.classList.remove('hidden');
+            
+            await processImage(pendingImage);
+            
+            // Restore button state
+            neutralizeBtn.innerHTML = originalText;
+            neutralizeBtn.disabled = false;
+            cancelBtn.disabled = false;
+        }, 50);
     });
 
     async function processImage(img) {
