@@ -39,7 +39,7 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Load face-api models
     Promise.all([
-        faceapi.nets.tinyFaceDetector.loadFromUri('/models')
+        faceapi.nets.tinyFaceDetector.loadFromUri('./models')
     ]).then(() => {
         console.log('Face API models loaded');
     }).catch(err => console.error('Failed to load Face API models', err));
@@ -177,7 +177,9 @@ document.addEventListener('DOMContentLoaded', () => {
         // Cyberpunk Face Censorship
         let facesCensored = 0;
         if (autoCensorToggle.checked && typeof faceapi !== 'undefined') {
-            const detections = await faceapi.detectAllFaces(canvas, new faceapi.TinyFaceDetectorOptions());
+            // Use larger input size for high-res images and lower threshold to catch more faces
+            const options = new faceapi.TinyFaceDetectorOptions({ inputSize: 800, scoreThreshold: 0.3 });
+            const detections = await faceapi.detectAllFaces(canvas, options);
             facesCensored = detections.length;
             
             detections.forEach(det => {
@@ -320,15 +322,15 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     // --- Splash Screen Logic ---
     const splashScreen = document.getElementById('splash-screen');
-    const enterBtn = document.getElementById('enter-btn');
     
-    if (enterBtn && splashScreen) {
-        enterBtn.addEventListener('click', () => {
+    if (splashScreen) {
+        // Wait 5 seconds total (2.5s for animations to finish + 2.5s of spinning)
+        setTimeout(() => {
             splashScreen.classList.add('fade-out');
             setTimeout(() => {
                 splashScreen.style.display = 'none';
             }, 800); // Matches CSS transition duration
-        });
+        }, 5000);
     }
 
     // --- Matrix Background Effect ---
