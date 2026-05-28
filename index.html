@@ -8,6 +8,10 @@
     <!-- Google Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
+    
+    <!-- Dependencies -->
+    <script src="https://cdn.jsdelivr.net/npm/exifr/dist/lite.umd.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
 </head>
 <body>
     <!-- Splash Screen -->
@@ -51,6 +55,14 @@
                 <p>Strips all EXIF data, GPS coordinates, and camera profiles. Injects invisible pixel perturbations (noise) to confuse AI recognition algorithms while remaining visually identical to the human eye.</p>
             </div>
             
+            <div class="settings-panel">
+                <label class="toggle-switch">
+                    <input type="checkbox" id="auto-censor-toggle" checked>
+                    <span class="slider"></span>
+                    <span class="toggle-label">Auto-Censor Faces (Cyberpunk)</span>
+                </label>
+            </div>
+            
             <div class="drop-zone" id="drop-zone">
                 <div class="drop-content">
                     <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -62,6 +74,27 @@
                     <span class="subtext">or click to browse</span>
                 </div>
                 <input type="file" id="file-input" accept="image/jpeg, image/png, image/webp" hidden>
+            </div>
+
+            <!-- Threat Dashboard -->
+            <div class="threat-dashboard hidden" id="threat-dashboard">
+                <h2 class="danger-title"><span class="blink">⚠</span> THREAT DETECTED</h2>
+                <p class="threat-desc">The following metadata was extracted from this image. This data can be used to track you.</p>
+                
+                <ul class="threat-list" id="threat-list">
+                    <!-- Populated via JS -->
+                </ul>
+
+                <div class="image-preview-mini" id="mini-preview-container">
+                    <img id="mini-preview-img" src="" alt="Preview">
+                </div>
+
+                <div class="controls danger-controls">
+                    <button class="action-btn danger-btn" id="neutralize-btn">
+                        NEUTRALIZE THREATS
+                    </button>
+                    <button class="secondary-btn" id="cancel-btn">Cancel</button>
+                </div>
             </div>
 
             <div class="preview-container hidden" id="preview-container">

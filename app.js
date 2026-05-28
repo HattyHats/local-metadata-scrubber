@@ -20,6 +20,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const dropZone = document.getElementById('drop-zone');
     const fileInput = document.getElementById('file-input');
     const previewContainer = document.getElementById('preview-container');
+    const threatDashboard = document.getElementById('threat-dashboard');
+    const threatList = document.getElementById('threat-list');
+    const miniPreviewImg = document.getElementById('mini-preview-img');
+    const neutralizeBtn = document.getElementById('neutralize-btn');
+    const cancelBtn = document.getElementById('cancel-btn');
+    const autoCensorToggle = document.getElementById('auto-censor-toggle');
+    
     const canvas = document.getElementById('image-canvas');
     const ctx = canvas.getContext('2d');
     const downloadBtn = document.getElementById('download-btn');
@@ -28,6 +35,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let processedImageDataUrl = null;
     let originalFilename = '';
+    let pendingImage = null;
+    
+    // Load face-api models
+    Promise.all([
+        faceapi.nets.tinyFaceDetector.loadFromUri('/models')
+    ]).then(() => {
+        console.log('Face API models loaded');
+    }).catch(err => console.error('Failed to load Face API models', err));
 
     // Drag and Drop Events
     ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
@@ -63,26 +78,93 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function handleFile(file) {
+    async function handleFile(file) {
         if (!file.type.match('image.*')) {
             alert('Please upload an image file (JPEG, PNG, WEBP).');
             return;
         }
 
         originalFilename = file.name;
-        const reader = new FileReader();
         
+        // Extract EXIF data using exifr
+        let exifData = null;
+        try {
+            exifData = await exifr.parse(file, { gps: true, tiff: true, exif: true });
+        } catch (err) {
+            console.error('No EXIF found or failed to parse', err);
+        }
+
+        const reader = new FileReader();
         reader.onload = (e) => {
             const img = new Image();
             img.onload = () => {
-                processImage(img);
+                pendingImage = img;
+                miniPreviewImg.src = e.target.result;
+                showThreatDashboard(exifData);
             };
             img.src = e.target.result;
         };
         reader.readAsDataURL(file);
     }
 
-    function processImage(img) {
+    function showThreatDashboard(exif) {
+        dropZone.classList.add('hidden');
+        threatDashboard.classList.remove('hidden');
+        
+        threatList.innerHTML = '';
+        
+        let threatsFound = 0;
+        
+        if (exif) {
+            if (exif.latitude && exif.longitude) {
+                addThreatItem('GPS Coordinates', `${exif.latitude.toFixed(6)}, ${exif.longitude.toFixed(6)}`);
+                threatsFound++;
+            }
+            if (exif.Make || exif.Model) {
+                addThreatItem('Device Profile', `${exif.Make || 'Unknown Make'} ${exif.Model || ''}`);
+                threatsFound++;
+            }
+            if (exif.DateTimeOriginal) {
+                addThreatItem('Capture Date', new Date(exif.DateTimeOriginal).toLocaleString());
+                threatsFound++;
+            }
+        }
+        
+        if (threatsFound === 0) {
+            addThreatItem('Metadata Status', 'No significant EXIF data found. Safe to proceed with pixel perturbation.');
+        }
+    }
+
+    function addThreatItem(label, value) {
+        const li = document.createElement('li');
+        li.className = 'threat-item';
+        li.innerHTML = `<span class="threat-label">${label}</span><span class="threat-value">${value}</span>`;
+        threatList.appendChild(li);
+    }
+
+    cancelBtn.addEventListener('click', resetAll);
+    resetImgBtn.addEventListener('click', resetAll);
+
+    function resetAll() {
+        previewContainer.classList.add('hidden');
+        threatDashboard.classList.add('hidden');
+        dropZone.classList.remove('hidden');
+        fileInput.value = '';
+        processedImageDataUrl = null;
+        pendingImage = null;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+
+    neutralizeBtn.addEventListener('click', async () => {
+        if (!pendingImage) return;
+        
+        threatDashboard.classList.add('hidden');
+        previewContainer.classList.remove('hidden');
+        
+        await processImage(pendingImage);
+    });
+
+    async function processImage(img) {
         const startTime = performance.now();
         
         // Set canvas dimensions to image dimensions
@@ -92,13 +174,47 @@ document.addEventListener('DOMContentLoaded', () => {
         // Drawing onto canvas strips EXIF automatically
         ctx.drawImage(img, 0, 0);
 
+        // Cyberpunk Face Censorship
+        let facesCensored = 0;
+        if (autoCensorToggle.checked && typeof faceapi !== 'undefined') {
+            const detections = await faceapi.detectAllFaces(canvas, new faceapi.TinyFaceDetectorOptions());
+            facesCensored = detections.length;
+            
+            detections.forEach(det => {
+                const box = det.box;
+                // Draw Cyberpunk Neon Bar over eyes
+                const barHeight = box.height * 0.3;
+                const barY = box.y + (box.height * 0.25); // Position around eyes
+                
+                // Black base
+                ctx.fillStyle = '#000000';
+                ctx.fillRect(box.x, barY, box.width, barHeight);
+                
+                // Neon glow line
+                ctx.strokeStyle = '#00ff88';
+                ctx.lineWidth = 4;
+                ctx.beginPath();
+                ctx.moveTo(box.x, barY + (barHeight / 2));
+                ctx.lineTo(box.x + box.width, barY + (barHeight / 2));
+                ctx.stroke();
+                
+                // Shadow/Glow effect
+                ctx.shadowColor = '#00ff88';
+                ctx.shadowBlur = 15;
+                ctx.stroke();
+                ctx.shadowBlur = 0; // reset
+            });
+        }
+
         // Perturb pixels (Canvas Camouflage)
         const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
         const data = imageData.data;
         let modifiedPixels = 0;
 
         for (let i = 0; i < data.length; i += 4) {
-            // Randomly modify ~30% of pixels to add imperceptible noise
+            // Skip pure black pixels to avoid perturbing the censorship bars
+            if (data[i] === 0 && data[i+1] === 0 && data[i+2] === 0) continue;
+            
             if (Math.random() < 0.3) {
                 // Modify RGB by -1, 0, or 1
                 data[i] = clamp(data[i] + (Math.floor(Math.random() * 3) - 1));     // R
@@ -117,22 +233,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const processingTime = (endTime - startTime).toFixed(2);
 
         // Update UI
-        dropZone.classList.add('hidden');
-        previewContainer.classList.remove('hidden');
-        imgStats.innerHTML = `> METADATA STRIPPED <br> > ${modifiedPixels.toLocaleString()} PIXELS PERTURBED <br> > PROCESSED IN ${processingTime}ms`;
+        let censorStats = facesCensored > 0 ? `<br> > ${facesCensored} FACES CENSORED` : '';
+        imgStats.innerHTML = `> METADATA STRIPPED ${censorStats} <br> > ${modifiedPixels.toLocaleString()} PIXELS PERTURBED <br> > PROCESSED IN ${processingTime}ms`;
     }
 
     function clamp(val) {
         return Math.min(255, Math.max(0, val));
     }
-
-    resetImgBtn.addEventListener('click', () => {
-        previewContainer.classList.add('hidden');
-        dropZone.classList.remove('hidden');
-        fileInput.value = '';
-        processedImageDataUrl = null;
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-    });
 
     downloadBtn.addEventListener('click', () => {
         if (!processedImageDataUrl) return;
