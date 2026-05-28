@@ -5,18 +5,36 @@ document.addEventListener('DOMContentLoaded', () => {
 
     tabBtns.forEach(btn => {
         btn.addEventListener('click', () => {
-            // Remove active class from all
             tabBtns.forEach(b => b.classList.remove('active'));
             tabContents.forEach(c => c.classList.remove('active'));
-
-            // Add active class to clicked
+            
             btn.classList.add('active');
-            const targetId = btn.getAttribute('data-target');
-            document.getElementById(targetId).classList.add('active');
+            document.getElementById(btn.dataset.target).classList.add('active');
         });
     });
 
-    // --- Image Scrubber Logic ---
+    // --- Splash Screen Logic ---
+    const splashScreen = document.getElementById('splash-screen');
+    
+    if (splashScreen) {
+        setTimeout(() => {
+            splashScreen.classList.add('fade-out');
+            setTimeout(() => {
+                splashScreen.style.display = 'none';
+            }, 800); 
+        }, 5000);
+    }
+
+    // --- Load Face API Models ---
+    Promise.all([
+        faceapi.nets.tinyFaceDetector.loadFromUri('./models')
+    ]).then(() => {
+        console.log('Face API models loaded');
+    }).catch(err => console.error('Failed to load Face API models', err));
+
+    // ==========================================
+    // 1. IMAGE SCRUBBER (Batch + Stego)
+    // ==========================================
     const dropZone = document.getElementById('drop-zone');
     const fileInput = document.getElementById('file-input');
     const previewContainer = document.getElementById('preview-container');
@@ -26,27 +44,25 @@ document.addEventListener('DOMContentLoaded', () => {
     const neutralizeBtn = document.getElementById('neutralize-btn');
     const cancelBtn = document.getElementById('cancel-btn');
     const autoCensorToggle = document.getElementById('auto-censor-toggle');
+    const watermarkInput = document.getElementById('watermark-input');
     
     const canvas = document.getElementById('image-canvas');
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
     const downloadBtn = document.getElementById('download-btn');
     const resetImgBtn = document.getElementById('reset-img-btn');
     const imgStats = document.getElementById('img-stats');
 
-    let processedImageDataUrl = null;
-    let originalFilename = '';
-    let pendingImage = null;
+    let processedBlobs = []; // [{ name: 'file1.png', blob: Blob }]
+    let pendingFiles = [];
     
-    // Load face-api models
-    Promise.all([
-        faceapi.nets.tinyFaceDetector.loadFromUri('./models')
-    ]).then(() => {
-        console.log('Face API models loaded');
-    }).catch(err => console.error('Failed to load Face API models', err));
+    // Watermark Extraction
+    const extractDropZone = document.getElementById('extract-drop-zone');
+    const extractFileInput = document.getElementById('extract-file-input');
+    const extractedDisplay = document.getElementById('extracted-watermark-display');
 
-    // Drag and Drop Events
     ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
         dropZone.addEventListener(eventName, preventDefaults, false);
+        extractDropZone.addEventListener(eventName, preventDefaults, false);
     });
 
     function preventDefaults(e) {
@@ -55,66 +71,66 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     ['dragenter', 'dragover'].forEach(eventName => {
-        dropZone.addEventListener(eventName, () => dropZone.classList.add('dragover'), false);
+        dropZone.classList.add('dragover');
+        extractDropZone.classList.add('dragover');
     });
 
     ['dragleave', 'drop'].forEach(eventName => {
-        dropZone.addEventListener(eventName, () => dropZone.classList.remove('dragover'), false);
+        dropZone.classList.remove('dragover');
+        extractDropZone.classList.remove('dragover');
     });
 
-    dropZone.addEventListener('drop', handleDrop, false);
-    dropZone.addEventListener('click', () => fileInput.click());
+    dropZone.addEventListener('drop', (e) => {
+        const files = Array.from(e.dataTransfer.files).filter(f => f.type.match('image.*'));
+        if(files.length > 0) handleFiles(files);
+    });
+    
     fileInput.addEventListener('change', (e) => {
-        if (e.target.files.length) {
-            handleFile(e.target.files[0]);
-        }
+        const files = Array.from(e.target.files).filter(f => f.type.match('image.*'));
+        if(files.length > 0) handleFiles(files);
     });
 
-    function handleDrop(e) {
-        const dt = e.dataTransfer;
-        const files = dt.files;
-        if (files.length) {
-            handleFile(files[0]);
-        }
-    }
+    extractDropZone.addEventListener('drop', (e) => {
+        if(e.dataTransfer.files.length > 0) handleExtract(e.dataTransfer.files[0]);
+    });
+    
+    extractFileInput.addEventListener('change', (e) => {
+        if(e.target.files.length > 0) handleExtract(e.target.files[0]);
+    });
 
-    async function handleFile(file) {
-        if (!file.type.match('image.*')) {
-            alert('Please upload an image file (JPEG, PNG, WEBP).');
-            return;
-        }
+    // Make the sub-dropzone click to upload work too
+    extractDropZone.addEventListener('click', () => extractFileInput.click());
+    dropZone.addEventListener('click', () => fileInput.click());
 
-        originalFilename = file.name;
+    async function handleFiles(files) {
+        pendingFiles = files;
         
-        // Extract EXIF data using exifr
+        // Show threat dashboard for the first file only for simplicity
         let exifData = null;
         try {
-            exifData = await exifr.parse(file, { gps: true, tiff: true, exif: true });
-        } catch (err) {
-            console.error('No EXIF found or failed to parse', err);
-        }
+            if (typeof exifr !== 'undefined') {
+                exifData = await exifr.parse(files[0], { gps: true, tiff: true, exif: true });
+            }
+        } catch (err) {}
 
         const reader = new FileReader();
         reader.onload = (e) => {
-            const img = new Image();
-            img.onload = () => {
-                pendingImage = img;
-                miniPreviewImg.src = e.target.result;
-                showThreatDashboard(exifData);
-            };
-            img.src = e.target.result;
+            miniPreviewImg.src = e.target.result;
+            showThreatDashboard(exifData, files.length);
         };
-        reader.readAsDataURL(file);
+        reader.readAsDataURL(files[0]);
     }
 
-    function showThreatDashboard(exif) {
+    function showThreatDashboard(exif, count) {
         dropZone.classList.add('hidden');
         threatDashboard.classList.remove('hidden');
-        
         threatList.innerHTML = '';
         
-        let threatsFound = 0;
+        if (count > 1) {
+            addThreatItem('Batch Mode', `Processing ${count} images.`);
+        }
         
+        let threatsFound = 0;
         if (exif) {
             if (exif.latitude && exif.longitude) {
                 addThreatItem('GPS Coordinates', `${exif.latitude.toFixed(6)}, ${exif.longitude.toFixed(6)}`);
@@ -122,10 +138,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             if (exif.Make || exif.Model) {
                 addThreatItem('Device Profile', `${exif.Make || 'Unknown Make'} ${exif.Model || ''}`);
-                threatsFound++;
-            }
-            if (exif.DateTimeOriginal) {
-                addThreatItem('Capture Date', new Date(exif.DateTimeOriginal).toLocaleString());
                 threatsFound++;
             }
         }
@@ -142,253 +154,531 @@ document.addEventListener('DOMContentLoaded', () => {
         threatList.appendChild(li);
     }
 
-    cancelBtn.addEventListener('click', resetAll);
     resetImgBtn.addEventListener('click', resetAll);
+    cancelBtn.addEventListener('click', resetAll);
 
     function resetAll() {
         previewContainer.classList.add('hidden');
         threatDashboard.classList.add('hidden');
         dropZone.classList.remove('hidden');
         fileInput.value = '';
-        processedImageDataUrl = null;
-        pendingImage = null;
+        processedBlobs = [];
+        pendingFiles = [];
         ctx.clearRect(0, 0, canvas.width, canvas.height);
+        downloadBtn.innerHTML = 'DOWNLOAD SCRUBBED IMAGE';
     }
 
     neutralizeBtn.addEventListener('click', () => {
-        if (!pendingImage) return;
+        if (pendingFiles.length === 0) return;
         
-        // Show loading state on the button
         const originalText = neutralizeBtn.innerHTML;
         neutralizeBtn.innerHTML = '<span class="spinner-small"></span> NEUTRALIZING...';
         neutralizeBtn.disabled = true;
         cancelBtn.disabled = true;
         
-        // Use setTimeout to allow the browser to paint the loading state before blocking the thread
         setTimeout(async () => {
             threatDashboard.classList.add('hidden');
             previewContainer.classList.remove('hidden');
             
-            await processImage(pendingImage);
+            imgStats.innerHTML = `<span class="spinner-small"></span> Processing ${pendingFiles.length} file(s)...`;
             
-            // Restore button state
+            processedBlobs = [];
+            for (let i = 0; i < pendingFiles.length; i++) {
+                await processImage(pendingFiles[i]);
+            }
+            
+            imgStats.innerHTML = `> ${pendingFiles.length} IMAGES SECURED <br> > READY FOR DOWNLOAD`;
+            
+            if (pendingFiles.length > 1) {
+                downloadBtn.innerHTML = 'DOWNLOAD SECURE BATCH (.ZIP)';
+            }
+            
             neutralizeBtn.innerHTML = originalText;
             neutralizeBtn.disabled = false;
             cancelBtn.disabled = false;
         }, 50);
     });
 
-    async function processImage(img) {
-        const startTime = performance.now();
-        
-        // Set canvas dimensions to image dimensions
-        canvas.width = img.width;
-        canvas.height = img.height;
-        
-        // Drawing onto canvas strips EXIF automatically
-        ctx.drawImage(img, 0, 0);
+    async function processImage(file) {
+        return new Promise((resolve) => {
+            const img = new Image();
+            img.onload = async () => {
+                canvas.width = img.width;
+                canvas.height = img.height;
+                ctx.drawImage(img, 0, 0);
 
-        // Cyberpunk Face Censorship
-        let facesCensored = 0;
-        if (autoCensorToggle.checked && typeof faceapi !== 'undefined') {
-            // Use larger input size for high-res images and lower threshold to catch more faces
-            const options = new faceapi.TinyFaceDetectorOptions({ inputSize: 800, scoreThreshold: 0.3 });
-            const detections = await faceapi.detectAllFaces(canvas, options);
-            facesCensored = detections.length;
+                if (autoCensorToggle.checked && typeof faceapi !== 'undefined' && faceapi.nets.tinyFaceDetector.isLoaded) {
+                    const options = new faceapi.TinyFaceDetectorOptions({ inputSize: 800, scoreThreshold: 0.3 });
+                    const detections = await faceapi.detectAllFaces(canvas, options);
+                    
+                    detections.forEach(det => {
+                        const box = det.box;
+                        const barHeight = box.height * 0.3;
+                        const barY = box.y + (box.height * 0.25);
+                        
+                        ctx.fillStyle = '#000000';
+                        ctx.fillRect(box.x, barY, box.width, barHeight);
+                        ctx.strokeStyle = '#00ff88';
+                        ctx.lineWidth = 4;
+                        ctx.beginPath();
+                        ctx.moveTo(box.x, barY + (barHeight / 2));
+                        ctx.lineTo(box.x + box.width, barY + (barHeight / 2));
+                        ctx.stroke();
+                        ctx.shadowColor = '#00ff88';
+                        ctx.shadowBlur = 15;
+                        ctx.stroke();
+                        ctx.shadowBlur = 0;
+                    });
+                }
+
+                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                const data = imageData.data;
+
+                // Canvas Camouflage (Noise)
+                for (let i = 0; i < data.length; i += 4) {
+                    if (data[i] === 0 && data[i+1] === 0 && data[i+2] === 0) continue;
+                    if (Math.random() < 0.3) {
+                        data[i] = clamp(data[i] + (Math.floor(Math.random() * 3) - 1));
+                        data[i+1] = clamp(data[i+1] + (Math.floor(Math.random() * 3) - 1));
+                        data[i+2] = clamp(data[i+2] + (Math.floor(Math.random() * 3) - 1));
+                    }
+                }
+                
+                // Steganography Injection
+                const watermark = watermarkInput.value.trim();
+                if (watermark) {
+                    encodeSteganography(data, watermark);
+                }
+
+                ctx.putImageData(imageData, 0, 0);
+                
+                canvas.toBlob((blob) => {
+                    let newName = file.name.replace(/\.[^/.]+$/, "") + "_ghost.png";
+                    processedBlobs.push({ name: newName, blob: blob });
+                    resolve();
+                }, 'image/png');
+            };
             
-            detections.forEach(det => {
-                const box = det.box;
-                // Draw Cyberpunk Neon Bar over eyes
-                const barHeight = box.height * 0.3;
-                const barY = box.y + (box.height * 0.25); // Position around eyes
-                
-                // Black base
-                ctx.fillStyle = '#000000';
-                ctx.fillRect(box.x, barY, box.width, barHeight);
-                
-                // Neon glow line
-                ctx.strokeStyle = '#00ff88';
-                ctx.lineWidth = 4;
-                ctx.beginPath();
-                ctx.moveTo(box.x, barY + (barHeight / 2));
-                ctx.lineTo(box.x + box.width, barY + (barHeight / 2));
-                ctx.stroke();
-                
-                // Shadow/Glow effect
-                ctx.shadowColor = '#00ff88';
-                ctx.shadowBlur = 15;
-                ctx.stroke();
-                ctx.shadowBlur = 0; // reset
-            });
-        }
+            const reader = new FileReader();
+            reader.onload = (e) => img.src = e.target.result;
+            reader.readAsDataURL(file);
+        });
+    }
 
-        // Perturb pixels (Canvas Camouflage)
-        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        const data = imageData.data;
-        let modifiedPixels = 0;
+    function clamp(val) { return Math.min(255, Math.max(0, val)); }
 
-        for (let i = 0; i < data.length; i += 4) {
-            // Skip pure black pixels to avoid perturbing the censorship bars
-            if (data[i] === 0 && data[i+1] === 0 && data[i+2] === 0) continue;
-            
-            if (Math.random() < 0.3) {
-                // Modify RGB by -1, 0, or 1
-                data[i] = clamp(data[i] + (Math.floor(Math.random() * 3) - 1));     // R
-                data[i+1] = clamp(data[i+1] + (Math.floor(Math.random() * 3) - 1)); // G
-                data[i+2] = clamp(data[i+2] + (Math.floor(Math.random() * 3) - 1)); // B
-                modifiedPixels++;
+    downloadBtn.addEventListener('click', async () => {
+        if (processedBlobs.length === 0) return;
+        
+        if (processedBlobs.length === 1) {
+            const url = URL.createObjectURL(processedBlobs[0].blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = processedBlobs[0].name;
+            a.click();
+            URL.revokeObjectURL(url);
+        } else {
+            if (typeof JSZip === 'undefined') {
+                alert("JSZip failed to load, cannot create archive.");
+                return;
             }
+            const zip = new JSZip();
+            processedBlobs.forEach(file => {
+                zip.file(file.name, file.blob);
+            });
+            const content = await zip.generateAsync({type:"blob"});
+            const url = URL.createObjectURL(content);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = "ghost_protocol_batch.zip";
+            a.click();
+            URL.revokeObjectURL(url);
         }
-
-        ctx.putImageData(imageData, 0, 0);
-        
-        // Use PNG to preserve exact pixel values (lossless)
-        processedImageDataUrl = canvas.toDataURL('image/png');
-
-        const endTime = performance.now();
-        const processingTime = (endTime - startTime).toFixed(2);
-
-        // Update UI
-        let censorStats = facesCensored > 0 ? `<br> > ${facesCensored} FACES CENSORED` : '';
-        imgStats.innerHTML = `> METADATA STRIPPED ${censorStats} <br> > ${modifiedPixels.toLocaleString()} PIXELS PERTURBED <br> > PROCESSED IN ${processingTime}ms`;
-    }
-
-    function clamp(val) {
-        return Math.min(255, Math.max(0, val));
-    }
-
-    downloadBtn.addEventListener('click', () => {
-        if (!processedImageDataUrl) return;
-        
-        const a = document.createElement('a');
-        a.href = processedImageDataUrl;
-        // Append _ghost to original filename, change extension to png
-        const nameWithoutExt = originalFilename.substring(0, originalFilename.lastIndexOf('.')) || originalFilename;
-        a.download = `${nameWithoutExt}_ghost.png`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
     });
 
-    // --- Text Scrubber Logic ---
-    const textInput = document.getElementById('text-input');
+    // Steganography Logic
+    function encodeSteganography(data, text) {
+        const textWithTerminator = text + "\0";
+        let bitIndex = 0;
+        let charIndex = 0;
+        
+        for (let i = 0; i < data.length; i++) {
+            if ((i + 1) % 4 === 0) continue; // Skip alpha channel
+            
+            if (charIndex >= textWithTerminator.length) break;
+            
+            let charValue = textWithTerminator.charCodeAt(charIndex);
+            let bit = (charValue >> (7 - bitIndex)) & 1;
+            
+            data[i] = (data[i] & ~1) | bit; // set LSB
+            
+            bitIndex++;
+            if (bitIndex === 8) {
+                bitIndex = 0;
+                charIndex++;
+            }
+        }
+    }
+
+    function handleExtract(file) {
+        const img = new Image();
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            img.onload = () => {
+                const tempCanvas = document.createElement('canvas');
+                tempCanvas.width = img.width;
+                tempCanvas.height = img.height;
+                const tempCtx = tempCanvas.getContext('2d');
+                tempCtx.drawImage(img, 0, 0);
+                const data = tempCtx.getImageData(0, 0, img.width, img.height).data;
+                
+                let extractedText = "";
+                let currentChar = 0;
+                let bitIndex = 0;
+                
+                for (let i = 0; i < data.length; i++) {
+                    if ((i + 1) % 4 === 0) continue; // Skip alpha
+                    
+                    let bit = data[i] & 1;
+                    currentChar = (currentChar << 1) | bit;
+                    bitIndex++;
+                    
+                    if (bitIndex === 8) {
+                        if (currentChar === 0) break; // Null terminator
+                        extractedText += String.fromCharCode(currentChar);
+                        currentChar = 0;
+                        bitIndex = 0;
+                        
+                        // Failsafe limit
+                        if (extractedText.length > 500) break;
+                    }
+                }
+                
+                extractedDisplay.classList.remove('hidden');
+                if (extractedText && extractedText.length > 0 && extractedText.length < 500 && /^[\x20-\x7E]*$/.test(extractedText)) {
+                    extractedDisplay.innerHTML = `<strong>Watermark Found:</strong><br>${extractedText}`;
+                } else {
+                    extractedDisplay.innerHTML = `<span style="color:var(--danger)">No valid watermark found.</span>`;
+                }
+            };
+            img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+    }
+
+    // ==========================================
+    // 2. TEXT CAMOUFLAGE (Scramble + Crypto)
+    // ==========================================
+    const textModeToggle = document.getElementById('text-mode-toggle');
+    const textModeLabel = document.getElementById('text-mode-label');
+    const passwordContainer = document.getElementById('password-container');
+    const cryptoPassword = document.getElementById('crypto-password');
     const scrubTextBtn = document.getElementById('scrub-text-btn');
+    const decryptTextBtn = document.getElementById('decrypt-text-btn');
+    const textInput = document.getElementById('text-input');
     const textOutputContainer = document.getElementById('text-output-container');
     const textOutput = document.getElementById('text-output');
     const copyTextBtn = document.getElementById('copy-text-btn');
     const textStats = document.getElementById('text-stats');
 
-    // Array of zero-width / invisible characters
-    const invisibleChars = [
-        '\u200B', // Zero-width space
-        '\u200C', // Zero-width non-joiner
-        '\u200D', // Zero-width joiner
-        '\uFEFF'  // Zero-width no-break space
-    ];
+    textModeToggle.addEventListener('change', () => {
+        if (textModeToggle.checked) {
+            textModeLabel.innerHTML = 'Mode: Deep Encrypt';
+            passwordContainer.classList.remove('hidden');
+            decryptTextBtn.classList.remove('hidden');
+            scrubTextBtn.innerHTML = 'ENCRYPT TEXT';
+        } else {
+            textModeLabel.innerHTML = 'Mode: Ghost Scramble';
+            passwordContainer.classList.add('hidden');
+            decryptTextBtn.classList.add('hidden');
+            scrubTextBtn.innerHTML = 'PROCESS TEXT';
+        }
+    });
 
-    scrubTextBtn.addEventListener('click', () => {
+    scrubTextBtn.addEventListener('click', async () => {
         const input = textInput.value;
         if (!input) return;
 
-        const startTime = performance.now();
-        let output = '';
-        let injections = 0;
-
-        // Iterate through each character and randomly inject invisible chars
-        for (let i = 0; i < input.length; i++) {
-            output += input[i];
-            
-            // 40% chance to inject an invisible character after each visible one
-            if (Math.random() < 0.4) {
-                const randomChar = invisibleChars[Math.floor(Math.random() * invisibleChars.length)];
-                output += randomChar;
-                injections++;
+        if (textModeToggle.checked) {
+            // Encrypt Mode
+            const pwd = cryptoPassword.value;
+            if (!pwd) return alert("Password required for Deep Encrypt.");
+            try {
+                const encryptedStr = await encryptText(input, pwd);
+                textOutput.value = `-----BEGIN GHOST PROTOCOL-----\n${encryptedStr}\n-----END GHOST PROTOCOL-----`;
+                textStats.innerHTML = "> AES-GCM ENCRYPTED";
+            } catch (e) {
+                alert("Encryption failed.");
             }
+        } else {
+            // Scramble Mode
+            const zeroWidthChars = ['\u200B', '\u200C', '\u200D', '\uFEFF'];
+            let output = '';
+            let injectedCount = 0;
+
+            for (let i = 0; i < input.length; i++) {
+                output += input[i];
+                if (Math.random() < 0.4 && input[i] !== ' ' && input[i] !== '\n') {
+                    output += zeroWidthChars[Math.floor(Math.random() * zeroWidthChars.length)];
+                    injectedCount++;
+                }
+            }
+            textOutput.value = output;
+            textStats.innerHTML = `> ${injectedCount} INVISIBLE CHARACTERS INJECTED`;
         }
 
-        const endTime = performance.now();
-        const processingTime = (endTime - startTime).toFixed(2);
-
-        textOutput.value = output;
         textOutputContainer.classList.remove('hidden');
-        textStats.innerHTML = `> ${injections} GHOST CHARS INJECTED (${processingTime}ms)`;
     });
 
-    copyTextBtn.addEventListener('click', async () => {
-        if (!textOutput.value) return;
+    decryptTextBtn.addEventListener('click', async () => {
+        const input = textInput.value;
+        const pwd = cryptoPassword.value;
+        if (!pwd) return alert("Password required for Decrypt.");
+        
+        const match = input.match(/-----BEGIN GHOST PROTOCOL-----\n([\s\S]*?)\n-----END GHOST PROTOCOL-----/);
+        if (!match) return alert("Invalid Ghost Protocol block format.");
         
         try {
-            await navigator.clipboard.writeText(textOutput.value);
-            const originalText = copyTextBtn.innerHTML;
-            copyTextBtn.innerHTML = `
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <polyline points="20 6 9 17 4 12"></polyline>
-                </svg>
-                COPIED!
-            `;
-            setTimeout(() => {
-                copyTextBtn.innerHTML = originalText;
-            }, 2000);
+            const decrypted = await decryptText(match[1], pwd);
+            textOutput.value = decrypted;
+            textStats.innerHTML = "> SUCCESSFUL DECRYPTION";
+            textOutputContainer.classList.remove('hidden');
         } catch (err) {
-            console.error('Failed to copy text: ', err);
-            alert('Failed to copy text to clipboard.');
+            alert("Decryption failed. Incorrect password or corrupted data.");
         }
     });
-    // --- Splash Screen Logic ---
-    const splashScreen = document.getElementById('splash-screen');
-    
-    if (splashScreen) {
-        // Wait 5 seconds total (2.5s for animations to finish + 2.5s of spinning)
-        setTimeout(() => {
-            splashScreen.classList.add('fade-out');
-            setTimeout(() => {
-                splashScreen.style.display = 'none';
-            }, 800); // Matches CSS transition duration
-        }, 5000);
+
+    copyTextBtn.addEventListener('click', () => {
+        textOutput.select();
+        document.execCommand('copy');
+        
+        const originalHTML = copyTextBtn.innerHTML;
+        copyTextBtn.innerHTML = 'COPIED!';
+        setTimeout(() => copyTextBtn.innerHTML = originalHTML, 2000);
+    });
+
+    // Web Crypto Helpers
+    async function getCryptoKey(password, salt) {
+        const enc = new TextEncoder();
+        const keyMaterial = await crypto.subtle.importKey(
+            "raw", enc.encode(password), {name: "PBKDF2"}, false, ["deriveBits", "deriveKey"]
+        );
+        return await crypto.subtle.deriveKey(
+            { name: "PBKDF2", salt: salt, iterations: 100000, hash: "SHA-256" },
+            keyMaterial, { name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"]
+        );
     }
 
-    // --- Matrix Background Effect ---
-    const matrixCanvas = document.getElementById('matrix-canvas');
-    if (matrixCanvas) {
-        const mCtx = matrixCanvas.getContext('2d');
+    async function encryptText(text, password) {
+        const enc = new TextEncoder();
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const salt = crypto.getRandomValues(new Uint8Array(16));
+        const key = await getCryptoKey(password, salt);
         
-        matrixCanvas.width = window.innerWidth;
-        matrixCanvas.height = window.innerHeight;
+        const ciphertext = await crypto.subtle.encrypt(
+            { name: "AES-GCM", iv: iv }, key, enc.encode(text)
+        );
         
-        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@#$%^&*()_+{}|[]<>?'.split('');
-        const fontSize = 14;
-        const rows = Math.ceil(matrixCanvas.height / fontSize);
-        const streams = [];
+        const payload = new Uint8Array(salt.length + iv.length + ciphertext.byteLength);
+        payload.set(salt, 0);
+        payload.set(iv, salt.length);
+        payload.set(new Uint8Array(ciphertext), salt.length + iv.length);
         
-        // Start streams at random horizontal positions so the screen is immediately full
-        for (let y = 0; y < rows; y++) {
-            streams[y] = Math.random() * (matrixCanvas.width / fontSize);
+        // Convert to base64
+        let binary = '';
+        for (let i = 0; i < payload.byteLength; i++) {
+            binary += String.fromCharCode(payload[i]);
         }
+        return btoa(binary);
+    }
+
+    async function decryptText(base64Str, password) {
+        const raw = atob(base64Str.trim());
+        const payload = new Uint8Array(raw.length);
+        for(let i = 0; i < raw.length; i++) payload[i] = raw.charCodeAt(i);
         
-        function drawMatrix() {
-            mCtx.fillStyle = 'rgba(0, 0, 0, 0.05)';
-            mCtx.fillRect(0, 0, matrixCanvas.width, matrixCanvas.height);
-            
-            mCtx.fillStyle = '#00ff88'; // var(--neon-green)
-            mCtx.font = fontSize + 'px monospace';
-            
-            for (let i = 0; i < streams.length; i++) {
-                const text = chars[Math.floor(Math.random() * chars.length)];
-                // Draw text: x = stream progress, y = row index
-                mCtx.fillText(text, streams[i] * fontSize, i * fontSize);
-                
-                if (streams[i] * fontSize > matrixCanvas.width && Math.random() > 0.975) {
-                    streams[i] = 0;
-                }
-                streams[i]++;
-            }
-        }
+        const salt = payload.slice(0, 16);
+        const iv = payload.slice(16, 28);
+        const ciphertext = payload.slice(28);
         
-        setInterval(drawMatrix, 33);
+        const key = await getCryptoKey(password, salt);
+        const decrypted = await crypto.subtle.decrypt(
+            { name: "AES-GCM", iv: iv }, key, ciphertext
+        );
         
-        window.addEventListener('resize', () => {
-            matrixCanvas.width = window.innerWidth;
-            matrixCanvas.height = window.innerHeight;
+        const dec = new TextDecoder();
+        return dec.decode(decrypted);
+    }
+
+    // ==========================================
+    // 3. AUDIO SCRUBBER (Voice Anonymizer)
+    // ==========================================
+    const audioDropZone = document.getElementById('audio-drop-zone');
+    const audioFileInput = document.getElementById('audio-file-input');
+    const audioPreviewContainer = document.getElementById('audio-preview-container');
+    const audioElement = document.getElementById('audio-element');
+    const downloadAudioBtn = document.getElementById('download-audio-btn');
+    const resetAudioBtn = document.getElementById('reset-audio-btn');
+    const audioStats = document.getElementById('audio-stats');
+
+    let processedAudioBlobUrl = null;
+
+    if(audioDropZone) {
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            audioDropZone.addEventListener(eventName, preventDefaults, false);
         });
+
+        ['dragenter', 'dragover'].forEach(eventName => {
+            audioDropZone.classList.add('dragover');
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            audioDropZone.classList.remove('dragover');
+        });
+
+        audioDropZone.addEventListener('drop', (e) => {
+            const files = Array.from(e.dataTransfer.files).filter(f => f.type.match('audio.*') || f.type.match('video.*'));
+            if(files.length > 0) processAudio(files[0]);
+        });
+        
+        audioDropZone.addEventListener('click', () => audioFileInput.click());
+        
+        audioFileInput.addEventListener('change', (e) => {
+            if(e.target.files.length > 0) processAudio(e.target.files[0]);
+        });
+    }
+
+    async function processAudio(file) {
+        audioDropZone.classList.add('hidden');
+        audioPreviewContainer.classList.remove('hidden');
+        audioStats.innerHTML = `<span class="spinner-small"></span> Anonymizing Voice...`;
+
+        try {
+            const arrayBuffer = await file.arrayBuffer();
+            const tempCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const audioBuffer = await tempCtx.decodeAudioData(arrayBuffer);
+            
+            // Offline rendering
+            const offlineCtx = new OfflineAudioContext(audioBuffer.numberOfChannels, audioBuffer.length, audioBuffer.sampleRate);
+            const source = offlineCtx.createBufferSource();
+            source.buffer = audioBuffer;
+            
+            // 1. Pitch bend (lower slightly for anonymity)
+            source.playbackRate.value = 0.85;
+
+            // 2. WaveShaper Distortion (Cyberpunk effect)
+            const distortion = offlineCtx.createWaveShaper();
+            distortion.curve = makeDistortionCurve(10);
+            distortion.oversample = '4x';
+            
+            // 3. White Noise Injection
+            const noise = offlineCtx.createBufferSource();
+            const noiseBuffer = offlineCtx.createBuffer(1, audioBuffer.length, offlineCtx.sampleRate);
+            const noiseData = noiseBuffer.getChannelData(0);
+            for (let i = 0; i < noiseData.length; i++) {
+                noiseData[i] = Math.random() * 2 - 1;
+            }
+            noise.buffer = noiseBuffer;
+            noise.loop = true;
+            
+            const noiseGain = offlineCtx.createGain();
+            noiseGain.gain.value = 0.05; // Subtle background noise
+
+            // Routing
+            source.connect(distortion);
+            distortion.connect(offlineCtx.destination);
+            noise.connect(noiseGain);
+            noiseGain.connect(offlineCtx.destination);
+            
+            source.start(0);
+            noise.start(0);
+
+            const renderedBuffer = await offlineCtx.startRendering();
+            const wavBlob = audioBufferToWav(renderedBuffer);
+            
+            processedAudioBlobUrl = URL.createObjectURL(wavBlob);
+            audioElement.src = processedAudioBlobUrl;
+            
+            audioStats.innerHTML = `> PITCH SHIFTED <br> > NOISE INJECTED <br> > READY TO DOWNLOAD`;
+        } catch (err) {
+            console.error(err);
+            audioStats.innerHTML = `<span style="color:var(--danger)">Error processing audio.</span>`;
+        }
+    }
+
+    function makeDistortionCurve(amount) {
+        let k = typeof amount === 'number' ? amount : 50;
+        let n_samples = 44100;
+        let curve = new Float32Array(n_samples);
+        let deg = Math.PI / 180;
+        for (let i = 0; i < n_samples; ++i) {
+            let x = i * 2 / n_samples - 1;
+            curve[i] = (3 + k) * x * 20 * deg / (Math.PI + k * Math.abs(x));
+        }
+        return curve;
+    }
+
+    if(resetAudioBtn) {
+        resetAudioBtn.addEventListener('click', () => {
+            audioDropZone.classList.remove('hidden');
+            audioPreviewContainer.classList.add('hidden');
+            audioFileInput.value = '';
+            if (processedAudioBlobUrl) {
+                URL.revokeObjectURL(processedAudioBlobUrl);
+                processedAudioBlobUrl = null;
+            }
+            audioElement.src = "";
+        });
+    }
+
+    if(downloadAudioBtn) {
+        downloadAudioBtn.addEventListener('click', () => {
+            if (!processedAudioBlobUrl) return;
+            const a = document.createElement('a');
+            a.href = processedAudioBlobUrl;
+            a.download = "ghost_protocol_audio.wav";
+            a.click();
+        });
+    }
+
+    // WAV Encoder
+    function audioBufferToWav(buffer) {
+        let numOfChan = buffer.numberOfChannels,
+            length = buffer.length * numOfChan * 2 + 44,
+            bufferArray = new ArrayBuffer(length),
+            view = new DataView(bufferArray),
+            channels = [], i, sample, offset = 0, pos = 0;
+
+        // write WAV header
+        setUint32(0x46464952); // "RIFF"
+        setUint32(length - 8); // file length - 8
+        setUint32(0x45564157); // "WAVE"
+        setUint32(0x20746d66); // "fmt " chunk
+        setUint32(16); // length = 16
+        setUint16(1); // PCM (uncompressed)
+        setUint16(numOfChan);
+        setUint32(buffer.sampleRate);
+        setUint32(buffer.sampleRate * 2 * numOfChan); // avg. bytes/sec
+        setUint16(numOfChan * 2); // block-align
+        setUint16(16); // 16-bit
+        setUint32(0x61746164); // "data" - chunk
+        setUint32(length - pos - 4); // chunk length
+
+        for(i = 0; i < buffer.numberOfChannels; i++)
+            channels.push(buffer.getChannelData(i));
+
+        while(pos < length) {
+            for(i = 0; i < numOfChan; i++) {
+                sample = Math.max(-1, Math.min(1, channels[i][offset]));
+                sample = (0.5 + sample < 0 ? sample * 32768 : sample * 32767)|0;
+                view.setInt16(pos, sample, true); 
+                pos += 2;
+            }
+            offset++;
+        }
+        return new Blob([bufferArray], {type: "audio/wav"});
+
+        function setUint16(data) { view.setUint16(pos, data, true); pos += 2; }
+        function setUint32(data) { view.setUint32(pos, data, true); pos += 4; }
     }
 });

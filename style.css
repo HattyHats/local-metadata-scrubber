@@ -577,6 +577,90 @@ button:disabled {
     pointer-events: none;
 }
 
+/* V2 UI Elements */
+.multi-settings {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 20px;
+}
+
+.setting-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.input-label {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
+}
+
+.text-input-small {
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid var(--glass-border);
+    color: var(--text-primary);
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    outline: none;
+    transition: 0.3s;
+}
+
+.text-input-small:focus {
+    border-color: var(--neon-blue);
+    box-shadow: 0 0 10px rgba(0, 225, 255, 0.2);
+}
+
+.extract-panel {
+    margin-top: 30px;
+    padding-top: 20px;
+    border-top: 1px dashed var(--glass-border);
+}
+
+.extract-desc {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+    margin-bottom: 15px;
+}
+
+.extract-zone {
+    min-height: 80px;
+    padding: 20px;
+    border-color: var(--neon-blue);
+}
+
+.extract-zone:hover {
+    box-shadow: 0 0 20px rgba(0, 225, 255, 0.1);
+}
+
+.extracted-display {
+    margin-top: 15px;
+    padding: 15px;
+    background: rgba(0, 225, 255, 0.1);
+    border-left: 3px solid var(--neon-blue);
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    word-break: break-all;
+}
+
+.text-settings {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--glass-border);
+}
+
+.multi-actions {
+    display: flex;
+    gap: 15px;
+}
+
 @media (max-width: 600px) {
     .splash-title { font-size: 2.5rem; }
     .splash-subtitle { font-size: 1.2rem; }

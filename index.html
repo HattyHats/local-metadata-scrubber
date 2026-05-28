@@ -12,6 +12,7 @@
     <!-- Dependencies -->
     <script src="https://cdn.jsdelivr.net/npm/exifr/dist/lite.umd.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 </head>
 <body>
     <!-- Splash Screen -->
@@ -51,6 +52,7 @@
         <div class="tabs">
             <button class="tab-btn active" data-target="image-tab">IMAGE SCRUBBER</button>
             <button class="tab-btn" data-target="text-tab">TEXT CAMOUFLAGE</button>
+            <button class="tab-btn" data-target="audio-tab">AUDIO SCRUBBER</button>
         </div>
 
         <div class="tab-content active" id="image-tab">
@@ -58,12 +60,18 @@
                 <p>Strips all EXIF data, GPS coordinates, and camera profiles. Injects invisible pixel perturbations (noise) to confuse AI recognition algorithms while remaining visually identical to the human eye.</p>
             </div>
             
-            <div class="settings-panel">
-                <label class="toggle-switch">
-                    <input type="checkbox" id="auto-censor-toggle" checked>
-                    <span class="slider"></span>
-                    <span class="toggle-label">Auto-Censor Faces (Cyberpunk)</span>
-                </label>
+            <div class="settings-panel multi-settings">
+                <div class="setting-group">
+                    <label for="watermark-input" class="input-label">Invisible Watermark (Steganography)</label>
+                    <input type="text" id="watermark-input" class="text-input-small" placeholder="Enter secret signature...">
+                </div>
+                <div class="setting-group">
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="auto-censor-toggle" checked>
+                        <span class="slider"></span>
+                        <span class="toggle-label">Auto-Censor Faces</span>
+                    </label>
+                </div>
             </div>
             
             <div class="drop-zone" id="drop-zone">
@@ -73,10 +81,21 @@
                         <polyline points="17 8 12 3 7 8"></polyline>
                         <line x1="12" y1="3" x2="12" y2="15"></line>
                     </svg>
-                    <p>Drag & Drop Image Here</p>
-                    <span class="subtext">or click to browse</span>
+                    <p>Drag & Drop Images Here</p>
+                    <span class="subtext">Drop multiple files for Batch Processing</span>
                 </div>
-                <input type="file" id="file-input" accept="image/jpeg, image/png, image/webp" hidden>
+                <input type="file" id="file-input" accept="image/jpeg, image/png, image/webp" multiple hidden>
+            </div>
+            
+            <div class="extract-panel">
+                <p class="extract-desc">Need to prove ownership? Drop an image here to extract its hidden watermark.</p>
+                <div class="drop-zone extract-zone" id="extract-drop-zone">
+                    <div class="drop-content">
+                        <p>Drop Watermarked Image</p>
+                    </div>
+                    <input type="file" id="extract-file-input" accept="image/png" hidden>
+                </div>
+                <div id="extracted-watermark-display" class="extracted-display hidden"></div>
             </div>
 
             <!-- Threat Dashboard -->
@@ -121,22 +140,37 @@
 
         <div class="tab-content" id="text-tab">
             <div class="info-panel">
-                <p>Injects zero-width, non-printing characters randomly throughout your text. Humans read it normally; scrapers and AI models ingest corrupted, fragmented data.</p>
+                <p><strong>GHOST SCRAMBLE:</strong> Injects invisible characters to confuse AI scrapers. <br><strong>DEEP ENCRYPT:</strong> PGP-style AES-GCM local encryption for secure communication.</p>
+            </div>
+
+            <div class="text-settings">
+                <label class="toggle-switch">
+                    <input type="checkbox" id="text-mode-toggle">
+                    <span class="slider"></span>
+                    <span class="toggle-label" id="text-mode-label">Mode: Ghost Scramble</span>
+                </label>
+                
+                <div id="password-container" class="password-container hidden">
+                    <input type="password" id="crypto-password" class="text-input-small" placeholder="Encryption Password">
+                </div>
             </div>
 
             <div class="text-areas">
                 <div class="input-group">
-                    <label for="text-input">Original Text</label>
-                    <textarea id="text-input" placeholder="Paste your prose, code, or private thoughts here..."></textarea>
+                    <label for="text-input">Input Text</label>
+                    <textarea id="text-input" placeholder="Paste your prose, code, or private secrets here..."></textarea>
                 </div>
                 
-                <div class="actions">
+                <div class="actions multi-actions">
                     <button class="action-btn" id="scrub-text-btn">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <path d="M12 2v20"></path>
                             <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
                         </svg>
-                        CAMOUFLAGE TEXT
+                        PROCESS TEXT
+                    </button>
+                    <button class="action-btn hidden" id="decrypt-text-btn">
+                        DECRYPT MESSAGE
                     </button>
                 </div>
 
@@ -157,6 +191,40 @@
             </div>
         </div>
     </main>
+
+    <div class="tab-content" id="audio-tab" style="max-width: 800px; margin: 0 auto;">
+        <div class="info-panel">
+            <p>Scrambles voice memos using a WaveShaper distortion, pitch bending, and white noise to defeat AI voice cloning models while remaining somewhat intelligible.</p>
+        </div>
+
+        <div class="drop-zone" id="audio-drop-zone">
+            <div class="drop-content">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                    <line x1="12" y1="19" x2="12" y2="23"></line>
+                    <line x1="8" y1="23" x2="16" y2="23"></line>
+                </svg>
+                <p>Drag & Drop Audio Here</p>
+                <span class="subtext">MP3, WAV, OGG</span>
+            </div>
+            <input type="file" id="audio-file-input" accept="audio/*" hidden>
+        </div>
+
+        <div class="preview-container hidden" id="audio-preview-container">
+            <div class="audio-player" style="margin-bottom: 20px;">
+                <p class="audio-label" style="color: var(--neon-green); font-family: var(--font-mono); margin-bottom: 10px;">Anonymized Output:</p>
+                <audio id="audio-element" controls style="width: 100%; border-radius: 4px;"></audio>
+            </div>
+            <div class="controls">
+                <button class="action-btn" id="download-audio-btn">
+                    DOWNLOAD AUDIO
+                </button>
+                <button class="secondary-btn" id="reset-audio-btn">Reset</button>
+            </div>
+            <div class="processing-stats" id="audio-stats"></div>
+        </div>
+    </div>
 
     <script src="app.js"></script>
 </body>
